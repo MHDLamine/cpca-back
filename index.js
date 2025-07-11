@@ -235,6 +235,139 @@ app.get('/api/recruiters', async (req, res) => {
   }
 });
 
+// Delete user (DB)
+app.delete('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const conn = await getDbConnection();
+    // Vérifier si l'utilisateur existe
+    const [exists] = await conn.execute('SELECT id FROM users WHERE id = ?', [id]);
+    if (exists.length === 0) {
+      await conn.end();
+      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+    }
+    // Supprimer les données associées avant la suppression de l'utilisateur
+    await conn.execute('DELETE FROM videos WHERE candidateId = ?', [id]);
+    await conn.execute('DELETE FROM answers WHERE candidateId = ?', [id]);
+    await conn.execute('DELETE FROM users WHERE id = ?', [id]);
+    await conn.end();
+    res.json({ message: 'Utilisateur supprimé avec succès' });
+  } catch (err) {
+    res.status(500).json({ message: 'Erreur serveur', error: err.message });
+  }
+});
+
+// Update user (DB)
+app.put('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const { username, email } = req.body;
+  if (!username || !email) {
+    return res.status(400).json({ message: 'username et email sont requis' });
+  }
+  try {
+    const conn = await getDbConnection();
+    // Vérifier si l'utilisateur existe
+    const [exists] = await conn.execute('SELECT id FROM users WHERE id = ?', [id]);
+    if (exists.length === 0) {
+      await conn.end();
+      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+    }
+    // Vérifier si l'email n'est pas déjà utilisé par un autre utilisateur
+    const [emailExists] = await conn.execute('SELECT id FROM users WHERE email = ? AND id != ?', [email, id]);
+    if (emailExists.length > 0) {
+      await conn.end();
+      return res.status(409).json({ message: 'Cet email est déjà utilisé' });
+    }
+    await conn.execute('UPDATE users SET username = ?, email = ? WHERE id = ?', [username, email, id]);
+    await conn.end();
+    res.json({ message: 'Utilisateur mis à jour avec succès' });
+  } catch (err) {
+    res.status(500).json({ message: 'Erreur serveur', error: err.message });
+  }
+});
+
+// Delete question (DB)
+app.delete('/api/questions/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const conn = await getDbConnection();
+    // Vérifier si la question existe
+    const [exists] = await conn.execute('SELECT id FROM questions WHERE id = ?', [id]);
+    if (exists.length === 0) {
+      await conn.end();
+      return res.status(404).json({ message: 'Question non trouvée' });
+    }
+    // Supprimer les réponses associées avant la suppression de la question
+    await conn.execute('DELETE FROM answers WHERE questionId = ?', [id]);
+    await conn.execute('DELETE FROM questions WHERE id = ?', [id]);
+    await conn.end();
+    res.json({ message: 'Question supprimée avec succès' });
+  } catch (err) {
+    res.status(500).json({ message: 'Erreur serveur', error: err.message });
+  }
+});
+
+// Update question (DB)
+app.put('/api/questions/:id', async (req, res) => {
+  const { id } = req.params;
+  const { text, order } = req.body;
+  if (!text || typeof order !== 'number') {
+    return res.status(400).json({ message: 'text et order sont requis' });
+  }
+  try {
+    const conn = await getDbConnection();
+    // Vérifier si la question existe
+    const [exists] = await conn.execute('SELECT id FROM questions WHERE id = ?', [id]);
+    if (exists.length === 0) {
+      await conn.end();
+      return res.status(404).json({ message: 'Question non trouvée' });
+    }
+    await conn.execute('UPDATE questions SET text = ?, `order` = ? WHERE id = ?', [text, order, id]);
+    await conn.end();
+    res.json({ message: 'Question mise à jour avec succès' });
+  } catch (err) {
+    res.status(500).json({ message: 'Erreur serveur', error: err.message });
+  }
+});
+
+// Delete video (DB)
+app.delete('/api/videos/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const conn = await getDbConnection();
+    // Vérifier si la vidéo existe
+    const [exists] = await conn.execute('SELECT id FROM videos WHERE id = ?', [id]);
+    if (exists.length === 0) {
+      await conn.end();
+      return res.status(404).json({ message: 'Vidéo non trouvée' });
+    }
+    await conn.execute('DELETE FROM videos WHERE id = ?', [id]);
+    await conn.end();
+    res.json({ message: 'Vidéo supprimée avec succès' });
+  } catch (err) {
+    res.status(500).json({ message: 'Erreur serveur', error: err.message });
+  }
+});
+
+// Delete answer (DB)
+app.delete('/api/answers/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const conn = await getDbConnection();
+    // Vérifier si la réponse existe
+    const [exists] = await conn.execute('SELECT id FROM answers WHERE id = ?', [id]);
+    if (exists.length === 0) {
+      await conn.end();
+      return res.status(404).json({ message: 'Réponse non trouvée' });
+    }
+    await conn.execute('DELETE FROM answers WHERE id = ?', [id]);
+    await conn.end();
+    res.json({ message: 'Réponse supprimée avec succès' });
+  } catch (err) {
+    res.status(500).json({ message: 'Erreur serveur', error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`API server running on port ${PORT}`);
 });
