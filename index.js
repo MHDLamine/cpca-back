@@ -1,4 +1,6 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const { v4: uuidv4 } = require('uuid');
@@ -58,10 +60,86 @@ async function initDatabase() {
       duration VARCHAR(50),
       createdAt DATETIME
     );
+    CREATE TABLE IF NOT EXISTS cvs (
+      id VARCHAR(36) PRIMARY KEY,
+      candidateId VARCHAR(36),
+      filename VARCHAR(255),
+      url TEXT,
+      createdAt DATETIME
+    );
   `);
   await connection.end();
   console.log('Base de données et tables vérifiées/créées.');
 }
+// Multer config pour upload de CV
+const cvStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, path.join(__dirname, 'uploads/cvs'));
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname);
+  }
+});
+const uploadCV = multer({
+  storage: cvStorage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Seuls les fichiers PDF sont autorisés'));
+  },
+  limits: { fileSize: 5 * 1024 * 1024 } // 5 Mo max
+});
+
+// Créer le dossier uploads/cvs si besoin
+const fs = require('fs');
+const uploadsDir = path.join(__dirname, 'uploads/cvs');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+// Upload CV (PDF) avec gestion d'erreur multer
+app.post('/api/cv', (req, res) => {
+  uploadCV.single('cv')(req, res, async function (err) {
+    const { candidateId } = req.body;
+    if (err) {
+      // Erreur multer (type, taille, etc)
+      return res.status(400).json({ message: err.message || 'Erreur lors de l\'upload du fichier' });
+    }
+    if (!candidateId || !req.file) {
+      return res.status(400).json({ message: 'candidateId et fichier requis' });
+    }
+    try {
+      const conn = await getDbConnection();
+      // Supprimer l'ancien CV si existe (1 seul CV par candidat)
+      await conn.execute('DELETE FROM cvs WHERE candidateId = ?', [candidateId]);
+      const id = uuidv4();
+      const filename = req.file.filename;
+      const url = `/uploads/cvs/${filename}`;
+      const createdAt = new Date();
+      await conn.execute('INSERT INTO cvs (id, candidateId, filename, url, createdAt) VALUES (?, ?, ?, ?, ?)', [id, candidateId, filename, url, createdAt]);
+      await conn.end();
+      res.status(201).json({ id, candidateId, filename, url, createdAt });
+    } catch (err) {
+      res.status(500).json({ message: 'Erreur serveur', error: err.message });
+    }
+  });
+});
+
+// Récupérer le CV d'un candidat
+app.get('/api/cv/:candidateId', async (req, res) => {
+  const { candidateId } = req.params;
+  try {
+    const conn = await getDbConnection();
+    const [rows] = await conn.execute('SELECT * FROM cvs WHERE candidateId = ?', [candidateId]);
+    await conn.end();
+    if (rows.length === 0) return res.status(404).json({ message: 'Aucun CV trouvé' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ message: 'Erreur serveur', error: err.message });
+  }
+});
+
+// Servir les fichiers statiques (CV)
+app.use('/uploads/cvs', express.static(path.join(__dirname, 'uploads/cvs')));
 
 // Appel de l'initialisation au démarrage du serveur
 initDatabase().catch(console.error);
